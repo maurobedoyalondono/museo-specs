@@ -1,0 +1,208 @@
+⭐️ A) Simpler Option — Stateless, Expire = Re-login
+✅ 1️⃣ Login Flow
+User clicks “Sign in with Google” on your Next.js site.
+
+Frontend redirects user to your API:
+
+arduino
+Copy
+Edit
+https://api.example.com/auth/google
+API redirects user to Google OAuth consent screen:
+
+bash
+Copy
+Edit
+https://accounts.google.com/o/oauth2/v2/auth?client_id=...&redirect_uri=https://api.example.com/auth/google/callback&scope=profile email&response_type=code
+User authenticates with Google.
+
+Google redirects back to your API:
+
+ruby
+Copy
+Edit
+https://api.example.com/auth/google/callback?code=AUTH_CODE
+✅ 2️⃣ Your Express API Exchanges Code for Google Tokens
+ts
+Copy
+Edit
+// /auth/google/callback
+const { code } = req.query;
+const tokenRes = await axios.post(
+  'https://oauth2.googleapis.com/token',
+  {
+    code,
+    client_id: GOOGLE_CLIENT_ID,
+    client_secret: GOOGLE_CLIENT_SECRET,
+    redirect_uri: 'https://api.example.com/auth/google/callback',
+    grant_type: 'authorization_code'
+  }
+);
+
+const { id_token } = tokenRes.data;
+const googleUser = jwtDecode(id_token);
+Example googleUser:
+
+json
+Copy
+Edit
+{
+  "sub": "google_user_id",
+  "email": "user@example.com",
+  "name": "John Doe",
+  "picture": "https://..."
+}
+✅ 3️⃣ Your Server Issues Your Own JWT
+You sign your JWT with this data:
+
+ts
+Copy
+Edit
+const yourJwt = jwt.sign(
+  {
+    googleId: googleUser.sub,
+    email: googleUser.email,
+    name: googleUser.name,
+    picture: googleUser.picture
+  },
+  YOUR_SECRET,
+  { expiresIn: '7d' }
+);
+✅ Self-contained: all user info is inside.
+
+✅ 4️⃣ Send JWT to Frontend
+Simplest way: Redirect with token in URL
+
+arduino
+Copy
+Edit
+https://www.example.com/auth-success?token=YOUR_JWT
+Or set cookie (see advanced notes below).
+
+✅ 5️⃣ Frontend Receives and Stores JWT
+Example Next.js page /auth-success:
+
+tsx
+Copy
+Edit
+import { useRouter } from 'next/router';
+import { useEffect } from 'react';
+
+export default function AuthSuccess() {
+  const router = useRouter();
+  const { token } = router.query;
+
+  useEffect(() => {
+    if (token) {
+      localStorage.setItem('jwt', token as string);
+      router.replace('/');
+    }
+  }, [token]);
+
+  return <p>Authenticating...</p>;
+}
+✅ Now the JWT is in localStorage.
+✅ Client persists login.
+
+✅ 6️⃣ Frontend Knows User Is Logged In
+No extra call. It just reads and decodes the JWT:
+
+tsx
+Copy
+Edit
+import jwtDecode from 'jwt-decode';
+
+function getUser() {
+  const token = localStorage.getItem('jwt');
+  if (!token) return null;
+  try {
+    return jwtDecode(token);
+  } catch {
+    return null;
+  }
+}
+✅ On any page load:
+
+tsx
+Copy
+Edit
+const user = getUser();
+console.log(user?.email, user?.name);
+✅ No API call.
+✅ No DB call.
+✅ Works instantly on load.
+
+✅ 7️⃣ Frontend Sends JWT with Each API Request
+tsx
+Copy
+Edit
+const token = localStorage.getItem('jwt');
+
+fetch('https://api.example.com/protected', {
+  headers: {
+    Authorization: `Bearer ${token}`
+  }
+});
+✅ 8️⃣ Backend Middleware Checks JWT
+Your Express middleware:
+
+ts
+Copy
+Edit
+import jwt from 'jsonwebtoken';
+
+function authMiddleware(req, res, next) {
+  const auth = req.headers.authorization;
+  if (!auth) return res.status(401).json({ error: 'Missing token' });
+
+  const token = auth.split(' ')[1];
+  try {
+    const payload = jwt.verify(token, YOUR_SECRET);
+    req.user = payload;
+    next();
+  } catch (err) {
+    if (err.name === 'TokenExpiredError') {
+      return res.status(401).json({ error: 'Token expired' });
+    }
+    return res.status(401).json({ error: 'Invalid token' });
+  }
+}
+✅ 9️⃣ Protected Routes Use Middleware
+ts
+Copy
+Edit
+app.get('/protected', authMiddleware, (req, res) => {
+  res.json({
+    message: 'You are authenticated!',
+    user: req.user
+  });
+});
+✅ The decoded user is available in req.user.
+✅ No DB hit needed.
+
+✅ 10️⃣ When Token Expires
+jwt.verify fails with TokenExpiredError.
+
+Your API responds 401 Unauthorized.
+
+Your frontend detects 401 → logs user out → redirects to login.
+
+This is the simplest model.
+
+✅ Frontend Logout
+tsx
+Copy
+Edit
+function logout() {
+  localStorage.removeItem('jwt');
+  window.location.href = '/login';
+}
+✅ Advantages of This Plan
+⭐️ Completely stateless.
+⭐️ Zero DB lookups on each request.
+⭐️ User info always available client-side.
+⭐️ No call to /me needed.
+⭐️ Very simple to scale.
+
+✅ Disadvantage
+⚠️ User must log in again if token expires (e.g. after 7 days).
