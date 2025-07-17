@@ -55,3 +55,8 @@ PLAN CONTAINS:
 - AI creates the plan
 - User approves it
 - AI starts the implementation, ask if this is a one go of needs to stop after each step.
+
+- AFTER EACH STEP - AI MUST UPDATE PROGRESS AND RUN "npm run build", "npm run type-check", and "npm run lint" to verify the code compiles correctly, when it applies.
+- IF ERRORS: They must be solved before moving to next STEP - You need to cycle: fix, check, fix, check
+
+- FOR STYLES, this is key: You need to review full /styles: variables, mixins, etc and used them
